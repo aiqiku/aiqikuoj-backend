@@ -1,24 +1,36 @@
 package com.aiqiku.aiqikuoj.service.impl;
+import java.util.*;
 
+import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.collection.CollUtil;
 import com.aiqiku.aiqikuoj.common.ErrorCode;
+import com.aiqiku.aiqikuoj.constant.CommonConstant;
 import com.aiqiku.aiqikuoj.exception.BusinessException;
+import com.aiqiku.aiqikuoj.mapper.QuestionSubmitMapper;
 import com.aiqiku.aiqikuoj.model.dto.questionsubmit.QuestionSubmitAddRequest;
-import com.aiqiku.aiqikuoj.model.entity.*;
+import com.aiqiku.aiqikuoj.model.dto.questionsubmit.QuestionSubmitQueryRequest;
+import com.aiqiku.aiqikuoj.model.entity.Question;
 import com.aiqiku.aiqikuoj.model.entity.QuestionSubmit;
+import com.aiqiku.aiqikuoj.model.entity.User;
+import com.aiqiku.aiqikuoj.model.enums.questionsubmit.QuestionSubmitLanguageEnum;
 import com.aiqiku.aiqikuoj.model.enums.questionsubmit.QuestionSubmitStatusEnum;
+import com.aiqiku.aiqikuoj.model.vo.QuestionSubmitVO;
+import com.aiqiku.aiqikuoj.model.vo.QuestionVO;
 import com.aiqiku.aiqikuoj.service.QuestionService;
 import com.aiqiku.aiqikuoj.service.QuestionSubmitService;
-import com.aiqiku.aiqikuoj.service.QuestionSubmitService;
+import com.aiqiku.aiqikuoj.service.UserService;
+import com.aiqiku.aiqikuoj.utils.SqlUtils;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.aiqiku.aiqikuoj.model.entity.QuestionSubmit;
-import com.aiqiku.aiqikuoj.service.QuestionSubmitService;
-import com.aiqiku.aiqikuoj.mapper.QuestionSubmitMapper;
-import org.springframework.aop.framework.AopContext;
+import org.apache.commons.lang3.ObjectUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
+import java.util.stream.Collectors;
 
 /**
 * @author 张路路
@@ -28,11 +40,13 @@ import javax.annotation.Resource;
 @Service
 public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper, QuestionSubmit>
     implements QuestionSubmitService{
-    @Resource
-    private QuestionSubmitService questionSubmitService;
+
     @Resource
     private QuestionService questionService;
 
+
+    @Resource
+    private UserService userService;
     /**
      * 提交题目
      *
@@ -45,6 +59,10 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
      Long questionId = questionSubmitAddRequest.getQuestionId();
      String code = questionSubmitAddRequest.getCode();
      String language = questionSubmitAddRequest.getLanguage();
+        QuestionSubmitLanguageEnum languageEnum = QuestionSubmitLanguageEnum.getEnumByValue(language);
+        if (languageEnum == null){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,"语言不支持或者语言错误");
+        }
 
         // 判断实体是否存在，根据类别获取实体
         Question question = questionService.getById(questionId);
@@ -69,51 +87,71 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
         return questionSubmit.getId();
     }
 
-    /**
-     * 封装了事务的方法
-     *
-     * @param userId
-     * @param questionId
-     * @return
-     */
     @Override
-    @Transactional(rollbackFor = Exception.class)
-    public int doQuestionSubmitInner(long userId, long questionId) {
-        QuestionSubmit questionSubmit = new QuestionSubmit();
-        questionSubmit.setUserId(userId);
-        questionSubmit.setQuestionId(questionId);
-        QueryWrapper<QuestionSubmit> thumbQueryWrapper = new QueryWrapper<>(questionSubmit);
-        QuestionSubmit oldQuestionSubmit = this.getOne(thumbQueryWrapper);
-        boolean result;
-        // 已点赞
-        if (oldQuestionSubmit != null) {
-            result = this.remove(thumbQueryWrapper);
-            if (result) {
-                // 点赞数 - 1
-                result = questionSubmitService.update()
-                        .eq("id", questionId)
-                        .gt("thumbNum", 0)
-                        .setSql("thumbNum = thumbNum - 1")
-                        .update();
-                return result ? -1 : 0;
-            } else {
-                throw new BusinessException(ErrorCode.SYSTEM_ERROR);
-            }
-        } else {
-            // 未点赞
-            result = this.save(questionSubmit);
-            if (result) {
-                // 点赞数 + 1
-                result = questionSubmitService.update()
-                        .eq("id", questionId)
-                        .setSql("thumbNum = thumbNum + 1")
-                        .update();
-                return result ? 1 : 0;
-            } else {
-                throw new BusinessException(ErrorCode.SYSTEM_ERROR);
-            }
+    public QuestionSubmitVO getQuestionSubmitVO(QuestionSubmit questionSubmit,User loginUser) {
+
+
+        QuestionSubmitVO questionSubmitVO = QuestionSubmitVO.objToVo(questionSubmit);
+
+
+        //脱敏:仅仅本人和管理员能查看
+
+        Long userId = loginUser.getId();
+        if (!userId.equals(questionSubmit.getUserId()) && !userService.isAdmin(loginUser)){
+            questionSubmitVO.setCode(null);
         }
+        return questionSubmitVO;
     }
+
+    @Override
+    public Page<QuestionSubmitVO> getQuestionSubmitVOPage(Page<QuestionSubmit> questionSubmitPage, User loginUser) {
+        List<QuestionSubmit> questionSubmitList = questionSubmitPage.getRecords();
+        Page<QuestionSubmitVO> questionSubmitVOPage = new Page<>(questionSubmitPage.getCurrent(), questionSubmitPage.getSize(), questionSubmitPage.getTotal());
+        if (CollUtil.isEmpty(questionSubmitList)) {
+            return questionSubmitVOPage;
+        }
+        List<QuestionSubmitVO> questionSubmitVOList = questionSubmitList.stream()
+                .map(questionSubmit -> getQuestionSubmitVO(questionSubmit, loginUser))
+                .toList();
+        questionSubmitVOPage.setRecords(questionSubmitVOList);
+        return questionSubmitVOPage;
+    }
+
+    @Override
+    public QueryWrapper<QuestionSubmit> getQueryWrapper(QuestionSubmitQueryRequest questionSubmitQueryRequest) {
+
+
+
+
+        QueryWrapper<QuestionSubmit> queryWrapper = new QueryWrapper<>();
+        if (questionSubmitQueryRequest == null) {
+            return queryWrapper;
+        }
+        Long id = questionSubmitQueryRequest.getId();
+        Long questionId = questionSubmitQueryRequest.getQuestionId();
+        Long userId = questionSubmitQueryRequest.getUserId();
+        String language = questionSubmitQueryRequest.getLanguage();
+        Integer status = questionSubmitQueryRequest.getStatus();
+        int current = questionSubmitQueryRequest.getCurrent();
+        int pageSize = questionSubmitQueryRequest.getPageSize();
+        String sortField = questionSubmitQueryRequest.getSortField();
+        String sortOrder = questionSubmitQueryRequest.getSortOrder();
+        // 拼接查询条件
+
+
+        queryWrapper.eq(ObjectUtils.isNotEmpty(id), "id", id);
+        queryWrapper.eq(ObjectUtils.isNotEmpty(questionId), "questionId", questionId);
+        queryWrapper.eq(ObjectUtils.isNotEmpty(userId), "userId", userId);
+        queryWrapper.eq(ObjectUtils.isNotEmpty(language), "language", language);
+        queryWrapper.eq(QuestionSubmitStatusEnum.getEnumByValue(status)!= null, "status", status);
+        queryWrapper.eq("isDelete", false);
+
+        queryWrapper.orderBy(SqlUtils.validSortField(sortField), sortOrder.equals(CommonConstant.SORT_ORDER_ASC),
+                sortField);
+        return queryWrapper;
+    }
+
+
 }
 
 

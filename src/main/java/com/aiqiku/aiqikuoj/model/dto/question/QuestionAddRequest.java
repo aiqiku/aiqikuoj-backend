@@ -41,12 +41,12 @@ public class QuestionAddRequest implements Serializable {
     /**
      * 判题配置
      */
-    private String judgeConfig;
+    private JudgeConfig judgeConfig;
 
     /**
      * 判题用例
      */
-    private String judgeCase;
+    private List<JudgeCase> judgeCase;
 
 
 

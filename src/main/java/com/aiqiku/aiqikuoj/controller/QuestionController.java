@@ -9,10 +9,7 @@ import com.aiqiku.aiqikuoj.common.ResultUtils;
 import com.aiqiku.aiqikuoj.constant.UserConstant;
 import com.aiqiku.aiqikuoj.exception.BusinessException;
 import com.aiqiku.aiqikuoj.exception.ThrowUtils;
-import com.aiqiku.aiqikuoj.model.dto.question.QuestionAddRequest;
-import com.aiqiku.aiqikuoj.model.dto.question.QuestionEditRequest;
-import com.aiqiku.aiqikuoj.model.dto.question.QuestionQueryRequest;
-import com.aiqiku.aiqikuoj.model.dto.question.QuestionUpdateRequest;
+import com.aiqiku.aiqikuoj.model.dto.question.*;
 import com.aiqiku.aiqikuoj.model.entity.Question;
 import com.aiqiku.aiqikuoj.model.entity.User;
 import com.aiqiku.aiqikuoj.model.vo.QuestionVO;
@@ -66,7 +63,16 @@ public class QuestionController {
         }
         questionService.validQuestion(question, true);
         User loginUser = userService.getLoginUser(request);
+        List<JudgeCase> judgeCase = questionAddRequest.getJudgeCase();
+        JudgeConfig judgeConfig = questionAddRequest.getJudgeConfig();
+        if (judgeCase != null){
+            question.setJudgeCase(JSONUtil.toJsonStr(judgeCase));
+        }
+        if (judgeConfig != null){
+            question.setJudgeConfig(JSONUtil.toJsonStr(judgeConfig));
+        }
         question.setUserId(loginUser.getId());
+
         question.setFavourNum(0);
         question.setThumbNum(0);
         boolean result = questionService.save(question);
@@ -115,6 +121,14 @@ public class QuestionController {
         Question question = new Question();
         BeanUtils.copyProperties(questionUpdateRequest, question);
         List<String> tags = questionUpdateRequest.getTags();
+        List<JudgeCase> judgeCase = questionUpdateRequest.getJudgeCase();
+        JudgeConfig judgeConfig = questionUpdateRequest.getJudgeConfig();
+        if (judgeCase != null){
+            question.setJudgeCase(JSONUtil.toJsonStr(judgeCase));
+        }
+        if (judgeConfig != null){
+            question.setJudgeConfig(JSONUtil.toJsonStr(judgeConfig));
+        }
         if (tags != null) {
             question.setTags(JSONUtil.toJsonStr(tags));
         }
